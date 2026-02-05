@@ -128,23 +128,35 @@ app.route("/api/events", conversionRoutes);
 app.route("/api/whatsapp", whatsappRoutes);
 
 // OpenAPI JSON endpoint (محمي في Production)
-app.get("/doc", ipWhitelistMiddleware, (c) => c.json(openAPISpec));
+app.get("/doc", ipWhitelistMiddleware, (c) => {
+  // تمرير token في response لاستخدامه في /docs
+  return c.json(openAPISpec);
+});
 
 // Scalar API Reference UI (محمي في Production)
 app.get(
   "/docs",
   ipWhitelistMiddleware,
-  apiReference({
-    spec: { url: "/doc" },
-    theme: "purple",
-    pageTitle: "Masa Fashion API Docs",
-    layout: "modern",
-    darkMode: true,
-    metaData: {
-      title: "Masa Fashion API",
-      description: "Backend API for Masa Fashion store",
-    },
-  })
+  async (c) => {
+    // الحصول على token من الـ query
+    const token = c.req.query("token") || "";
+    const docUrl = token ? `/doc?token=${token}` : "/doc";
+    
+    // إنشاء apiReference مع الـ URL الصحيح
+    const reference = apiReference({
+      spec: { url: docUrl },
+      theme: "purple",
+      pageTitle: "Masa Fashion API Docs",
+      layout: "modern",
+      darkMode: true,
+      metaData: {
+        title: "Masa Fashion API",
+        description: "Backend API for Masa Fashion store",
+      },
+    });
+    
+    return reference(c, async () => {});
+  }
 );
 
 // ========== Start Server ==========
