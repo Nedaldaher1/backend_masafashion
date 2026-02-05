@@ -33,6 +33,9 @@ const ALLOWED_ORIGINS = IS_PRODUCTION
 // IPs المسموح لها بالوصول للـ /docs
 const ADMIN_IPS = (process.env.ADMIN_IPS || "").split(",").filter(Boolean);
 
+// Admin Token للوصول لـ /docs (بديل لـ IP)
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+
 // ========== Middlewares ==========
 
 // 1️⃣ Logger
@@ -72,7 +75,7 @@ app.use("*", cors({
   credentials: true,
 }));
 
-// 4️⃣ IP Whitelist للـ /docs - فقط في Production
+// 4️⃣ IP Whitelist أو Token للـ /docs - فقط في Production
 const ipWhitelistMiddleware = async (c: any, next: any) => {
   // في التطوير: اسمح للجميع
   if (!IS_PRODUCTION) {
@@ -80,24 +83,33 @@ const ipWhitelistMiddleware = async (c: any, next: any) => {
     return;
   }
   
+  // التحقق من Token أولاً (الأولوية للـ Token)
+  const tokenFromQuery = c.req.query("token");
+  const tokenFromHeader = c.req.header("X-Admin-Token");
+  
+  if (ADMIN_TOKEN && (tokenFromQuery === ADMIN_TOKEN || tokenFromHeader === ADMIN_TOKEN)) {
+    await next();
+    return;
+  }
+  
+  // التحقق من IP
   const clientIp = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || 
                    c.req.header("x-real-ip") || 
                    c.req.header("cf-connecting-ip") ||
                    "unknown";
   
-  // إذا كانت قائمة الـ IPs فارغة في Production، امنع الجميع
-  if (ADMIN_IPS.length === 0) {
-    console.warn("[Security] ADMIN_IPS not configured - blocking /docs access");
-    return c.json({ error: "Access denied - No admin IPs configured" }, 403);
-  }
-  
-  // التحقق من الـ IP
   if (ADMIN_IPS.includes(clientIp)) {
     await next();
     return;
   }
   
-  console.log(`[Security] Blocked access to docs from IP: ${clientIp}`);
+  // إذا لم يتطابق أي شيء
+  if (ADMIN_IPS.length === 0 && !ADMIN_TOKEN) {
+    console.warn("[Security] No ADMIN_IPS or ADMIN_TOKEN configured - blocking /docs");
+    return c.json({ error: "Access denied - No auth configured" }, 403);
+  }
+  
+  console.log(`[Security] Blocked access to docs - IP: ${clientIp}`);
   return c.json({ error: "Access denied" }, 403);
 };
 
@@ -148,7 +160,8 @@ if (IS_PRODUCTION) {
   console.log(`🔒 Security: ENABLED`);
   console.log(`   ├─ CORS: ${ALLOWED_ORIGINS.join(", ")}`);
   console.log(`   ├─ Rate Limit: 100 req/min`);
-  console.log(`   └─ Admin IPs: ${ADMIN_IPS.length > 0 ? ADMIN_IPS.join(", ") : "⚠️ NOT CONFIGURED"}`);
+  console.log(`   ├─ Admin IPs: ${ADMIN_IPS.length > 0 ? ADMIN_IPS.join(", ") : "Not set"}`);
+  console.log(`   └─ Admin Token: ${ADMIN_TOKEN ? "✅ Configured" : "Not set"}`);
 } else {
   console.log(`🔓 Security: DISABLED (development mode)`);
   console.log(`   └─ All origins allowed, no rate limit, /docs open`);
