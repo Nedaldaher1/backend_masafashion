@@ -1,10 +1,11 @@
-import { normalizePhone } from "../utils/hash.js";
-
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
-const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
-const STORE_PHONE_NUMBER = process.env.STORE_PHONE_NUMBER!;
-const API_VERSION = "v22.0";
-const API_URL = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+import { normalizePhone, normalizePhoneSafe } from "../utils/hash.js";
+import { 
+  WHATSAPP_ACCESS_TOKEN, 
+  WHATSAPP_API_URL, 
+  STORE_PHONE_NUMBER 
+} from "../config/env.js";
+import { generateInvoiceImage } from "./invoiceGenerator.js";
+import { uploadImage } from "./r2Upload.js";
 
 interface ApiResponse {
   success: boolean;
@@ -28,39 +29,74 @@ interface OrderNotification {
   notes?: string;
   items: OrderItem[];
   totalValue: number;
+  orderNumber?: string; // رقم الطلب للفاتورة
 }
 
 /**
- * تنسيق المنتجات كنص للقالب
- * حد WhatsApp للـ parameter: 1024 حرف
+ * إرسال صورة عبر واتساب
  */
-function formatProducts(items: OrderItem[]): string {
-  const MAX_LENGTH = 900; // نترك مساحة أمان
-  
-  let result = items.map((item, index) => {
-    return `${index + 1}. ${item.productName}\n   اللون: ${item.colorName} | المقاس: ${item.size}\n   الكمية: ${item.quantity} × ${item.price} د.أ`;
-  }).join("\n\n");
-  
-  // إذا تجاوز الحد، اختصر
-  if (result.length > MAX_LENGTH) {
-    result = result.substring(0, MAX_LENGTH - 20) + "\n... (المزيد)";
+async function sendImage(
+  to: string,
+  imageUrl: string,
+  caption?: string
+): Promise<ApiResponse> {
+  try {
+    const normalizedPhone = normalizePhone(to);
+    
+    console.log("[WhatsApp] Sending image to:", normalizedPhone);
+    console.log("[WhatsApp] Image URL:", imageUrl);
+
+    const requestBody = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: normalizedPhone,
+      type: "image",
+      image: {
+        link: imageUrl,
+        caption: caption || "",
+      },
+    };
+    
+    console.log("[WhatsApp] Request body:", JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(WHATSAPP_API_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json();
+    console.log("[WhatsApp] Image response:", JSON.stringify(data, null, 2));
+
+    if (!response.ok) {
+      console.error("[WhatsApp] Image send error:", data);
+      return { success: false, error: data.error?.message || "Failed to send image" };
+    }
+
+    console.log("[WhatsApp] Image sent successfully to:", normalizedPhone);
+    return { success: true, data };
+  } catch (error) {
+    console.error("[WhatsApp] Send image error:", error);
+    return { success: false, error: "Network error" };
   }
-  
-  return result;
 }
 
 /**
- * إرسال قالب purchase_receipt
+ * إرسال قالب information (تسويقي) مع صورة في الهيدر
  * القالب يحتوي على:
+ * Header: صورة الفاتورة
  * {{1}} - الاسم
  * {{2}} - الهاتف
  * {{3}} - المحافظة
  * {{4}} - العنوان
  * {{5}} - ملاحظات
- * {{6}} - تفاصيل المنتجات
+ * {{6}} - رقم الطلب
  * {{7}} - المبلغ الإجمالي
  */
-async function sendPurchaseReceiptTemplate(
+async function sendInformationTemplate(
   to: string,
   params: {
     customerName: string;
@@ -68,42 +104,66 @@ async function sendPurchaseReceiptTemplate(
     governorate: string;
     address: string;
     notes: string;
-    products: string;
+    orderNumber: string;
     totalValue: string;
-  }
+  },
+  headerImageUrl?: string
 ): Promise<ApiResponse> {
   try {
     const normalizedPhone = normalizePhone(to);
 
-    const response = await fetch(API_URL, {
+    // بناء الـ components
+    const components: any[] = [];
+    
+    // إضافة الهيدر مع الصورة (إذا موجودة)
+    if (headerImageUrl) {
+      components.push({
+        type: "header",
+        parameters: [
+          {
+            type: "image",
+            image: {
+              link: headerImageUrl,
+            },
+          },
+        ],
+      });
+    }
+    
+    // إضافة الـ body
+    components.push({
+      type: "body",
+      parameters: [
+        { type: "text", text: params.customerName },
+        { type: "text", text: params.customerPhone },
+        { type: "text", text: params.governorate },
+        { type: "text", text: params.address },
+        { type: "text", text: params.notes || "لا يوجد" },
+        { type: "text", text: params.orderNumber },
+        { type: "text", text: params.totalValue },
+      ],
+    });
+
+    const requestBody = {
+      messaging_product: "whatsapp",
+      to: normalizedPhone,
+      type: "template",
+      template: {
+        name: "information",
+        language: { code: "ar" },
+        components,
+      },
+    };
+    
+    console.log("[WhatsApp] Sending template with image header:", headerImageUrl ? "Yes" : "No");
+
+    const response = await fetch(WHATSAPP_API_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: normalizedPhone,
-        type: "template",
-        template: {
-          name: "purchase_receipt",
-          language: { code: "ar" },
-          components: [
-            {
-              type: "body",
-              parameters: [
-                { type: "text", text: params.customerName },
-                { type: "text", text: params.customerPhone },
-                { type: "text", text: params.governorate },
-                { type: "text", text: params.address },
-                { type: "text", text: params.notes || "لا يوجد" },
-                { type: "text", text: params.products },
-                { type: "text", text: params.totalValue },
-              ],
-            },
-          ],
-        },
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const data = await response.json();
@@ -123,34 +183,85 @@ async function sendPurchaseReceiptTemplate(
 
 /**
  * إرسال إشعار الطلب للعميل والمتجر
+ * 1. يرسل القالب أولاً (لفتح نافذة المحادثة)
+ * 2. ثم يرسل صورة الفاتورة
  */
 export async function notifyOrder(order: OrderNotification): Promise<{
   customerResult: ApiResponse;
   storeResult: ApiResponse;
+  invoiceUrl?: string;
 }> {
-  const formattedProducts = formatProducts(order.items);
+  // توليد صورة الفاتورة ورفعها
+  let invoiceUrl: string | null = null;
+  try {
+    console.log("[Invoice] Generating invoice image...");
+    const invoiceBuffer = await generateInvoiceImage({
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      governorate: order.governorate,
+      address: order.address,
+      notes: order.notes,
+      items: order.items,
+      totalValue: order.totalValue,
+      orderNumber: order.orderNumber,
+    });
+    
+    console.log("[Invoice] Uploading to Cloudflare R2...");
+    invoiceUrl = await uploadImage(invoiceBuffer);
+    
+    if (invoiceUrl) {
+      console.log("[Invoice] Invoice ready:", invoiceUrl);
+    } else {
+      console.error("[Invoice] Failed to upload invoice image");
+    }
+  } catch (error) {
+    console.error("[Invoice] Error generating invoice:", error);
+  }
   
+  // تنظيف النصوص
+  const sanitize = (text: string) => text.replace(/[\n\t\r]/g, ' ').replace(/\s{4,}/g, '   ').trim();
+  
+  // إعداد رقم الطلب
+  const orderNum = order.orderNumber || `ORD-${Date.now().toString(36).toUpperCase()}`;
+  
+  // إعداد معلومات القالب
   const templateParams = {
-    customerName: order.customerName,
-    customerPhone: order.customerPhone,
-    governorate: order.governorate,
-    address: order.address,
-    notes: order.notes || "لا يوجد",
-    products: formattedProducts,
+    customerName: sanitize(order.customerName),
+    customerPhone: sanitize(order.customerPhone),
+    governorate: sanitize(order.governorate),
+    address: sanitize(order.address),
+    notes: sanitize(order.notes || "لا يوجد"),
+    orderNumber: orderNum,
     totalValue: `${order.totalValue}`,
   };
 
-  // إرسال للعميل
-  const customerResult = await sendPurchaseReceiptTemplate(order.customerPhone, templateParams);
+  // إرسال للعميل: القالب مع صورة الفاتورة في الهيدر
+  console.log("[WhatsApp] Sending information template to customer...");
+  const customerResult = await sendInformationTemplate(
+    order.customerPhone, 
+    templateParams, 
+    invoiceUrl || undefined  // إرسال الصورة في الهيدر
+  );
 
   // إرسال للمتجر
   let storeResult: ApiResponse = { success: false, error: "Store phone not configured" };
   
   if (STORE_PHONE_NUMBER) {
-    storeResult = await sendPurchaseReceiptTemplate(STORE_PHONE_NUMBER, templateParams);
+    const storePhoneResult = normalizePhoneSafe(STORE_PHONE_NUMBER);
+    if (storePhoneResult.isValid) {
+      console.log("[WhatsApp] Sending information template to store...");
+      storeResult = await sendInformationTemplate(
+        STORE_PHONE_NUMBER, 
+        templateParams,
+        invoiceUrl || undefined  // نفس الصورة للمتجر
+      );
+    } else {
+      console.error("[WhatsApp] Invalid STORE_PHONE_NUMBER format:", storePhoneResult.error);
+      storeResult = { success: false, error: `Invalid store phone: ${storePhoneResult.error}` };
+    }
   } else {
     console.error("[WhatsApp] STORE_PHONE_NUMBER not configured in .env");
   }
 
-  return { customerResult, storeResult };
+  return { customerResult, storeResult, invoiceUrl: invoiceUrl || undefined };
 }

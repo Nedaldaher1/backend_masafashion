@@ -11,27 +11,11 @@ import {
   initiateCheckoutSchema, 
   viewContentSchema 
 } from "../utils/validation.js";
+import { authMiddleware, getClientIp } from "../middleware/auth.js";
 
 const app = new Hono();
 
-// Middleware للتحقق من API Key
-const authMiddleware = async (c: any, next: any) => {
-  const apiKey = c.req.header("X-API-Key");
-  if (apiKey !== process.env.API_SECRET_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-};
-
 app.use("*", authMiddleware);
-
-// Helper للحصول على IP
-const getClientIp = (c: any): string => {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || 
-         c.req.header("x-real-ip") || 
-         c.req.header("cf-connecting-ip") ||
-         "0.0.0.0";
-};
 
 /**
  * POST /api/events/purchase

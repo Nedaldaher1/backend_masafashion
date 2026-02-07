@@ -9,32 +9,10 @@ import "dotenv/config";
 import conversionRoutes from "./routes/conversion.js";
 import whatsappRoutes from "./routes/whatsapp.js";
 import { openAPISpec } from "./openapi.js";
+import { adminAccessMiddleware, getClientIp } from "./middleware/auth.js";
+import { IS_PRODUCTION, ALLOWED_ORIGINS, ADMIN_IPS, ADMIN_TOKEN, PORT } from "./config/env.js";
 
 const app = new Hono();
-
-// ========== Environment ==========
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
-
-// ========== Security Configuration ==========
-
-// الدومينات المسموح لها
-const ALLOWED_ORIGINS = IS_PRODUCTION 
-  ? [
-      "https://masa-fashion.store",
-      "https://www.masa-fashion.store",
-    ]
-  : [
-      "http://localhost:4321",
-      "http://localhost:3000",
-      "http://127.0.0.1:4321",
-      "http://127.0.0.1:3000",
-    ];
-
-// IPs المسموح لها بالوصول للـ /docs
-const ADMIN_IPS = (process.env.ADMIN_IPS || "").split(",").filter(Boolean);
-
-// Admin Token للوصول لـ /docs (بديل لـ IP)
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 
 // ========== Middlewares ==========
 
@@ -47,11 +25,7 @@ if (IS_PRODUCTION) {
     windowMs: 60 * 1000, // 1 minute
     limit: 100,
     standardHeaders: "draft-6",
-    keyGenerator: (c) => {
-      return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || 
-             c.req.header("x-real-ip") || 
-             "unknown";
-    },
+    keyGenerator: (c) => getClientIp(c) || "unknown",
   }));
 }
 
@@ -75,43 +49,7 @@ app.use("*", cors({
   credentials: true,
 }));
 
-// 4️⃣ IP Whitelist أو Token للـ /docs - فقط في Production
-const ipWhitelistMiddleware = async (c: any, next: any) => {
-  // في التطوير: اسمح للجميع
-  if (!IS_PRODUCTION) {
-    await next();
-    return;
-  }
-  
-  // التحقق من Token أولاً (الأولوية للـ Token)
-  const tokenFromQuery = c.req.query("token");
-  const tokenFromHeader = c.req.header("X-Admin-Token");
-  
-  if (ADMIN_TOKEN && (tokenFromQuery === ADMIN_TOKEN || tokenFromHeader === ADMIN_TOKEN)) {
-    await next();
-    return;
-  }
-  
-  // التحقق من IP
-  const clientIp = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || 
-                   c.req.header("x-real-ip") || 
-                   c.req.header("cf-connecting-ip") ||
-                   "unknown";
-  
-  if (ADMIN_IPS.includes(clientIp)) {
-    await next();
-    return;
-  }
-  
-  // إذا لم يتطابق أي شيء
-  if (ADMIN_IPS.length === 0 && !ADMIN_TOKEN) {
-    console.warn("[Security] No ADMIN_IPS or ADMIN_TOKEN configured - blocking /docs");
-    return c.json({ error: "Access denied - No auth configured" }, 403);
-  }
-  
-  console.log(`[Security] Blocked access to docs - IP: ${clientIp}`);
-  return c.json({ error: "Access denied" }, 403);
-};
+// 4️⃣ Admin access middleware - تم نقلها إلى middleware/auth.ts
 
 // ========== Routes ==========
 
@@ -128,15 +66,12 @@ app.route("/api/events", conversionRoutes);
 app.route("/api/whatsapp", whatsappRoutes);
 
 // OpenAPI JSON endpoint (محمي في Production)
-app.get("/doc", ipWhitelistMiddleware, (c) => {
-  // تمرير token في response لاستخدامه في /docs
-  return c.json(openAPISpec);
-});
+app.get("/doc", adminAccessMiddleware, (c) => c.json(openAPISpec));
 
 // Scalar API Reference UI (محمي في Production)
 app.get(
   "/docs",
-  ipWhitelistMiddleware,
+  adminAccessMiddleware,
   async (c) => {
     // الحصول على token من الـ query
     const token = c.req.query("token") || "";
@@ -160,11 +95,9 @@ app.get(
 );
 
 // ========== Start Server ==========
-const port = Number(process.env.PORT) || 3000;
-
 console.log(`\n${"=".repeat(50)}`);
-console.log(`🚀 Server running on http://localhost:${port}`);
-console.log(`📚 API Docs: http://localhost:${port}/docs`);
+console.log(`🚀 Server running on http://localhost:${PORT}`);
+console.log(`📚 API Docs: http://localhost:${PORT}/docs`);
 console.log(`${"=".repeat(50)}`);
 console.log(`🌍 Environment: ${IS_PRODUCTION ? "🔴 PRODUCTION" : "🟢 DEVELOPMENT"}`);
 
@@ -180,4 +113,4 @@ if (IS_PRODUCTION) {
 }
 console.log(`${"=".repeat(50)}\n`);
 
-serve({ fetch: app.fetch, port });
+serve({ fetch: app.fetch, port: PORT });

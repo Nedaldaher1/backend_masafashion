@@ -1,11 +1,11 @@
-import { hashData, normalizePhone } from "../utils/hash.js";
+import { hashData, hashDataRequired, normalizePhone } from "../utils/hash.js";
 import type { ConversionEvent, PurchaseRequest, AddToCartRequest } from "../types/index.js";
-
-const PIXEL_ID = process.env.META_PIXEL_ID!;
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN!;
-const TEST_EVENT_CODE = process.env.META_TEST_EVENT_CODE;
-const API_VERSION = "v22.0";
-const API_URL = `https://graph.facebook.com/${API_VERSION}/${PIXEL_ID}/events`;
+import { 
+  META_ACCESS_TOKEN, 
+  META_API_URL, 
+  META_TEST_EVENT_CODE, 
+  IS_PRODUCTION 
+} from "../config/env.js";
 
 interface ApiResponse {
   success: boolean;
@@ -18,17 +18,17 @@ interface ApiResponse {
  */
 export async function sendEvent(event: ConversionEvent): Promise<ApiResponse> {
   try {
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       data: [event],
-      access_token: ACCESS_TOKEN,
+      access_token: META_ACCESS_TOKEN,
     };
 
     // إضافة test_event_code في بيئة التطوير
-    if (TEST_EVENT_CODE && process.env.NODE_ENV !== "production") {
-      payload.test_event_code = TEST_EVENT_CODE;
+    if (META_TEST_EVENT_CODE && !IS_PRODUCTION) {
+      payload.test_event_code = META_TEST_EVENT_CODE;
     }
 
-    const response = await fetch(API_URL, {
+    const response = await fetch(META_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -60,6 +60,13 @@ export async function sendPurchaseEvent(
   const firstName = nameParts[0] || "";
   const lastName = nameParts.slice(1).join(" ") || "";
 
+  // بناء user_data مع تصفية القيم الفارغة
+  const phoneHash = hashDataRequired(normalizePhone(req.customerPhone));
+  const firstNameHash = hashData(firstName);
+  const lastNameHash = hashData(lastName);
+  const cityHash = hashData(req.city);
+  const countryHash = hashDataRequired("jo");
+
   const event: ConversionEvent = {
     event_name: "Purchase",
     event_time: Math.floor(Date.now() / 1000),
@@ -67,11 +74,11 @@ export async function sendPurchaseEvent(
     event_source_url: req.sourceUrl,
     action_source: "website",
     user_data: {
-      ph: [hashData(normalizePhone(req.customerPhone))],
-      fn: [hashData(firstName)],
-      ln: [hashData(lastName)],
-      ct: [hashData(req.city)],
-      country: [hashData("jo")],
+      ph: [phoneHash],
+      ...(firstNameHash && { fn: [firstNameHash] }),
+      ...(lastNameHash && { ln: [lastNameHash] }),
+      ...(cityHash && { ct: [cityHash] }),
+      country: [countryHash],
       client_ip_address: clientIp,
       client_user_agent: req.userAgent,
       fbc: req.fbc,

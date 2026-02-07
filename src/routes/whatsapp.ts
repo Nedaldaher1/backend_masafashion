@@ -1,17 +1,9 @@
 import { Hono } from "hono";
 import { notifyOrder } from "../services/whatsappCloud.js";
 import { orderNotificationSchema } from "../utils/validation.js";
+import { authMiddleware } from "../middleware/auth.js";
 
 const app = new Hono();
-
-// Middleware للتحقق من API Key
-const authMiddleware = async (c: any, next: any) => {
-  const apiKey = c.req.header("X-API-Key");
-  if (apiKey !== process.env.API_SECRET_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-};
 
 app.use("*", authMiddleware);
 
