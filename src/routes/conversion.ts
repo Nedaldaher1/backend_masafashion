@@ -116,6 +116,8 @@ app.post("/view-content", async (c) => {
     const parsed = viewContentSchema.safeParse(body);
 
     if (!parsed.success) {
+      console.error("[Route /view-content] Validation failed:", JSON.stringify(parsed.error.errors, null, 2));
+      console.error("[Route /view-content] Received body:", JSON.stringify(body, null, 2));
       return c.json({ 
         error: "Invalid data", 
         details: parsed.error.errors 

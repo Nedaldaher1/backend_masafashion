@@ -2,7 +2,8 @@ import { normalizePhone, normalizePhoneSafe } from "../utils/hash.js";
 import { 
   WHATSAPP_ACCESS_TOKEN, 
   WHATSAPP_API_URL, 
-  STORE_PHONE_NUMBER 
+  STORE_PHONE_NUMBER,
+  FALLBACK_INVOICE_IMAGE 
 } from "../config/env.js";
 import { generateInvoiceImage } from "./invoiceGenerator.js";
 import { uploadImage } from "./r2Upload.js";
@@ -115,21 +116,6 @@ async function sendInformationTemplate(
     // بناء الـ components
     const components: any[] = [];
     
-    // إضافة الهيدر مع الصورة (إذا موجودة)
-    if (headerImageUrl) {
-      components.push({
-        type: "header",
-        parameters: [
-          {
-            type: "image",
-            image: {
-              link: headerImageUrl,
-            },
-          },
-        ],
-      });
-    }
-    
     // إضافة الـ body
     components.push({
       type: "body",
@@ -155,7 +141,24 @@ async function sendInformationTemplate(
       },
     };
     
-    console.log("[WhatsApp] Sending template with image header:", headerImageUrl ? "Yes" : "No");
+    // قالب WhatsApp يتطلب صورة في الهيدر دائماً
+    // إذا لم تتوفر صورة، استخدم الصورة الافتراضية
+    const finalImageUrl = headerImageUrl || FALLBACK_INVOICE_IMAGE;
+    
+    // إضافة الهيدر مع الصورة (إجباري)
+    components.unshift({
+      type: "header",
+      parameters: [
+        {
+          type: "image",
+          image: {
+            link: finalImageUrl,
+          },
+        },
+      ],
+    });
+    
+    console.log("[WhatsApp] Sending template with image header:", finalImageUrl.substring(0, 50) + "...");
 
     const response = await fetch(WHATSAPP_API_URL, {
       method: "POST",

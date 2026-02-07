@@ -43,6 +43,9 @@ export const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
 export const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || "masa-fashion";
 export const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || ""; // رابط الـ public bucket
 
+// صورة افتراضية تُستخدم عند فشل توليد الفاتورة (مطلوبة لقالب WhatsApp)
+export const FALLBACK_INVOICE_IMAGE = process.env.FALLBACK_INVOICE_IMAGE || "https://pub-76c2498910d943fda3d82a03e2c79a34.r2.dev/default-invoice.png";
+
 // ========== CORS ==========
 export const ALLOWED_ORIGINS = IS_PRODUCTION 
   ? [
