@@ -4,7 +4,6 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { rateLimiter } from "hono-rate-limiter";
 import { apiReference } from "@scalar/hono-api-reference";
-import "dotenv/config";
 
 import conversionRoutes from "./routes/conversion.js";
 import whatsappRoutes from "./routes/whatsapp.js";
