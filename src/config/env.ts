@@ -2,7 +2,6 @@
  * تحقق وتصدير متغيرات البيئة
  * يتم التحقق عند بدء التشغيل لتجنب الأخطاء في وقت التشغيل
  */
-import "dotenv/config";
 
 function getEnvVar(key: string, required: boolean = true): string {
   const value = process.env[key];
