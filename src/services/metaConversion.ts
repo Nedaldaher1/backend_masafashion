@@ -3,7 +3,6 @@ import type { ConversionEvent, PurchaseRequest, AddToCartRequest } from "../type
 import { 
   META_ACCESS_TOKEN, 
   META_API_URL, 
-  META_TEST_EVENT_CODE, 
   IS_PRODUCTION 
 } from "../config/env.js";
 
@@ -15,18 +14,19 @@ interface ApiResponse {
 
 /**
  * إرسال حدث إلى Meta Conversion API
+ * في بيئة التطوير، يتم تخطي الإرسال الفعلي
  */
 export async function sendEvent(event: ConversionEvent): Promise<ApiResponse> {
+  // تخطي التتبع في بيئة التطوير
+  if (!IS_PRODUCTION) {
+    return { success: true, data: { skipped: true } };
+  }
+
   try {
     const payload: Record<string, unknown> = {
       data: [event],
       access_token: META_ACCESS_TOKEN,
     };
-
-    // إضافة test_event_code في بيئة التطوير
-    if (META_TEST_EVENT_CODE && !IS_PRODUCTION) {
-      payload.test_event_code = META_TEST_EVENT_CODE;
-    }
 
     const response = await fetch(META_API_URL, {
       method: "POST",

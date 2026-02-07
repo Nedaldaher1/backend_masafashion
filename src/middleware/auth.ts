@@ -13,8 +13,15 @@ export function getClientIp(c: Context): string {
 
 /**
  * Middleware للتحقق من API Key
+ * في بيئة التطوير: يتخطى التحقق
  */
 export async function authMiddleware(c: Context, next: Next): Promise<Response | void> {
+  // تخطي الحماية في بيئة التطوير
+  if (!IS_PRODUCTION) {
+    await next();
+    return;
+  }
+  
   const apiKey = c.req.header("X-API-Key");
   
   if (apiKey !== API_SECRET_KEY) {
